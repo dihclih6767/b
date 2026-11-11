@@ -13,6 +13,7 @@ local HttpService = CloneRef(game:GetService("HttpService"))
 local GetHui = gethui or function()
     return CoreGui
 end
+local ProtectGui = protectgui or function() end
 
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
@@ -342,20 +343,49 @@ local function TextWidth(Text, Size, Font)
     return TextService:GetTextSize(Text, Size, Font, Vector2.new(1000, 100)).X
 end
 
-local function ParentUi(Gui)
-    local Hui = nil
-    if type(GetHui) == "function" then
-        local Ok, Res = pcall(GetHui)
-        if Ok and Res then
-            Hui = Res
+local function SafeParentUi(Inst, Parent)
+    local Ok = pcall(function()
+        if not Parent then
+            Parent = CoreGui
         end
+        local Dest
+        if typeof(Parent) == "function" then
+            Dest = Parent()
+        else
+            Dest = Parent
+        end
+        if not Dest then
+            Dest = CoreGui
+        end
+        Inst.Parent = Dest
+    end)
+    if not (Ok and Inst.Parent) then
+        Ok = pcall(function()
+            if typeof(Parent) == "function" then
+                local Dest = Parent()
+                if Dest then
+                    Inst.Parent = Dest
+                end
+            end
+        end)
     end
-    Gui.Parent = Hui or CoreGui
-    if protectgui then
-        pcall(protectgui, Gui)
-    elseif syn and syn.protect_gui then
-        pcall(syn.protect_gui, Gui)
+    if not (Ok and Inst.Parent) then
+        pcall(function()
+            Inst.Parent = CoreGui
+        end)
     end
+    if not Inst.Parent then
+        Inst.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
+    end
+end
+
+local function ParentUi(Gui, SkipHiddenUi)
+    if SkipHiddenUi then
+        SafeParentUi(Gui, CoreGui)
+        return
+    end
+    pcall(ProtectGui, Gui)
+    SafeParentUi(Gui, GetHui)
 end
 
 local function SwatchGrid(Parent, Order, OnPick, Colors, Hooks)
@@ -585,18 +615,21 @@ function Library:Panic()
 end
 
 do
-    local GuiParent = nil
-    if type(GetHui) == "function" then
-        local Ok, Res = pcall(GetHui)
-        if Ok and Res then
-            GuiParent = Res
-        end
+    local Roots = {}
+    local OkHui, Hui = pcall(GetHui)
+    if OkHui and Hui then
+        Roots[#Roots + 1] = Hui
     end
-    GuiParent = GuiParent or CoreGui
-
-    local OldGui = GuiParent:FindFirstChild(Library.GuiNames.UI)
-    if OldGui then
-        OldGui:Destroy()
+    Roots[#Roots + 1] = CoreGui
+    local Pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if Pg then
+        Roots[#Roots + 1] = Pg
+    end
+    for _, Root in ipairs(Roots) do
+        local OldGui = Root:FindFirstChild(Library.GuiNames.UI)
+        if OldGui then
+            OldGui:Destroy()
+        end
     end
 
     local ScreenGui = New("ScreenGui", {
@@ -1144,6 +1177,7 @@ Library.Shared = {
     SameColor = SameColor,
     SwatchGrid = SwatchGrid,
     ParentUi = ParentUi,
+    SafeParentUi = SafeParentUi,
     Palette = Palette,
     PrimaryPalette = PrimaryPalette,
     TabIcons = TabIcons,
